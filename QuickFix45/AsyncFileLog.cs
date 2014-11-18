@@ -55,8 +55,14 @@ namespace QuickFix
         {
             var filename = Path.Combine(_fileLogPath, _prefix + fileExtension);
             using (var log = new StreamWriter(filename, true) { AutoFlush = true })
+            {
                 foreach (var message in buffer.GetConsumingEnumerable(_tokenSource.Token))
                     log.WriteLine(Fields.Converters.DateTimeConverter.Convert(DateTime.UtcNow) + " : " + message);
+
+                string mess;
+                while (buffer.TryTake(out mess))
+                    log.WriteLine(Fields.Converters.DateTimeConverter.Convert(DateTime.UtcNow) + " : " + mess);
+            }
         }
 
         private static string Prefix(SessionID sessionId)
