@@ -18,11 +18,11 @@ namespace QuickFix
         /// <summary>
         /// Creates a file-based message store
         /// </summary>
-        /// <param name="sessionID">session ID for the message store</param>
+        /// <param name="sessionId">session ID for the message store</param>
         /// <returns></returns>
-        public ILog Create(SessionID sessionID)
+        public ILog Create(SessionID sessionId)
         {
-            return new AsyncFileLog(settings_.Get(sessionID).GetString(SessionSettings.FILE_LOG_PATH), sessionID);
+            return new AsyncFileLog(settings_.Get(sessionId).GetString(SessionSettings.FILE_LOG_PATH), sessionId);
         }
 
         #endregion

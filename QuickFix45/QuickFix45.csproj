@@ -41,6 +41,7 @@
   <ItemGroup>
     <Compile Include="AsyncFileLog.cs" />
     <Compile Include="AsyncFileLogFactory.cs" />
+    <Compile Include="NullLogFactory.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
