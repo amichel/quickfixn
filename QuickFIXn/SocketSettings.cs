@@ -26,7 +26,7 @@ namespace QuickFix
         /// The common name is the name of the Server's certificate and it is usually
         /// the DNS name of the server.
         /// </value>
-        public string ServerCommonName { get; internal set; }
+        public string ServerCommonName { get; set; }
 
         /// <summary>
         /// Gets a value indicating whether certificates of the other endpoint should be validated.

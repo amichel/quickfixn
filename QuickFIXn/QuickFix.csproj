@@ -52,6 +52,7 @@
     <Compile Include="CompositeLog.cs" />
     <Compile Include="DataDictionary\IFieldMapSpec.cs" />
     <Compile Include="DataDictionary\IGroupSpec.cs" />
+    <Compile Include="DefaultSessionStateFactory.cs" />
     <Compile Include="IAcceptor.cs" />
     <Compile Include="ClientHandlerThread.cs" />
     <Compile Include="DataDictionaryProvider.cs" />
@@ -75,6 +76,9 @@
     <Compile Include="IMessageStore.cs" />
     <Compile Include="IMessageStoreFactory.cs" />
     <Compile Include="IResponder.cs" />
+    <Compile Include="ISession.cs" />
+    <Compile Include="ISessionState.cs" />
+    <Compile Include="ISessionStateFactory.cs" />
     <Compile Include="MemoryStore.cs" />
     <Compile Include="MemoryStoreFactory.cs" />
     <Compile Include="MessageCracker.cs" />

@@ -1,11 +1,12 @@
-﻿using System.Net.Sockets;
-using System.Net;
-using System.Threading;
-using System.IO;
-using System;
+﻿using System;
 using System.Diagnostics;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using QuickFix;
 
-namespace QuickFix
+namespace QuickFix45
 {
     /// <summary>
     /// Handles a connection with an acceptor.
@@ -41,7 +42,7 @@ namespace QuickFix
         public void Start()
         {
             isDisconnectRequested_ = false;
-            thread_ = new Thread(new ParameterizedThreadStart(Transport.SocketInitiator.SocketInitiatorThreadStart));
+            thread_ = new Thread(new ParameterizedThreadStart(QuickFix.Transport.SocketInitiator.SocketInitiatorThreadStart));
             thread_.Start(this);
         }
 

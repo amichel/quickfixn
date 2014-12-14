@@ -6,7 +6,7 @@ namespace QuickFix45
     {
         #region LogFactory Members
 
-        public NullLogFactory(SessionSettings settings)
+        public NullLogFactory()
         { }
 
         public ILog Create(SessionID sessionId)

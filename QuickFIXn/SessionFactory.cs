@@ -11,7 +11,7 @@ namespace QuickFix
         protected IMessageStoreFactory messageStoreFactory_;
         protected ILogFactory logFactory_;
         protected IMessageFactory messageFactory_;
-        protected Dictionary<string,DataDictionary.DataDictionary> dictionariesByPath_ = new Dictionary<string,DataDictionary.DataDictionary>();
+        protected Dictionary<string, DataDictionary.DataDictionary> dictionariesByPath_ = new Dictionary<string, DataDictionary.DataDictionary>();
 
         public SessionFactory(IApplication app, IMessageStoreFactory storeFactory)
             : this(app, storeFactory, null, null)
@@ -29,7 +29,7 @@ namespace QuickFix
             messageFactory_ = messageFactory ?? new DefaultMessageFactory();
         }
 
-        public Session Create(SessionID sessionID, QuickFix.Dictionary settings)
+        public ISession Create(SessionID sessionID, QuickFix.Dictionary settings)
         {
             string connectionType = settings.GetString(SessionSettings.CONNECTION_TYPE);
             if (!"acceptor".Equals(connectionType) && !"initiator".Equals(connectionType))
@@ -50,7 +50,7 @@ namespace QuickFix
                     throw new ConfigError("ApplVerID is required for FIXT transport");
                 }
                 defaultApplVerID = Message.GetApplVerID(settings.GetString(SessionSettings.DEFAULT_APPLVERID));
-                
+
             }
 
             DataDictionaryProvider dd = new DataDictionaryProvider();
@@ -63,26 +63,17 @@ namespace QuickFix
             }
 
             int heartBtInt = 0;
-            if ( connectionType == "initiator" )
+            if (connectionType == "initiator")
             {
-                heartBtInt = System.Convert.ToInt32(settings.GetLong( SessionSettings.HEARTBTINT ));
-                if ( heartBtInt <= 0 )
-                    throw new ConfigError( "Heartbeat must be greater than zero" );
+                heartBtInt = System.Convert.ToInt32(settings.GetLong(SessionSettings.HEARTBTINT));
+                if (heartBtInt <= 0)
+                    throw new ConfigError("Heartbeat must be greater than zero");
             }
             string senderDefaultApplVerId = "";
-            if(defaultApplVerID != null)
+            if (defaultApplVerID != null)
                 senderDefaultApplVerId = defaultApplVerID.Obj;
 
-            Session session = new Session(
-                application_,
-                messageStoreFactory_,
-                sessionID,
-                dd,
-                new SessionSchedule(settings),
-                heartBtInt,
-                logFactory_,
-                messageFactory_,
-                senderDefaultApplVerId);
+            var session = CreateSession(sessionID, settings, dd, heartBtInt, senderDefaultApplVerId);
 
             if (settings.Has(SessionSettings.SEND_REDUNDANT_RESENDREQUESTS))
                 session.SendRedundantResendRequests = settings.GetBool(SessionSettings.SEND_REDUNDANT_RESENDREQUESTS);
@@ -128,6 +119,21 @@ namespace QuickFix
             return session;
         }
 
+        protected virtual ISession CreateSession(SessionID sessionID, Dictionary settings, DataDictionaryProvider dd,
+            int heartBtInt, string senderDefaultApplVerId)
+        {
+            return new Session(
+                application_,
+                messageStoreFactory_,
+                sessionID,
+                dd,
+                new SessionSchedule(settings),
+                heartBtInt,
+                logFactory_,
+                messageFactory_,
+                senderDefaultApplVerId);
+        }
+
         protected DataDictionary.DataDictionary createDataDictionary(SessionID sessionID, QuickFix.Dictionary settings, string settingsKey, string beginString)
         {
             DataDictionary.DataDictionary dd;
@@ -158,7 +164,7 @@ namespace QuickFix
         protected void ProcessFixTDataDictionaries(SessionID sessionID, Dictionary settings, DataDictionaryProvider provider)
         {
             provider.AddTransportDataDictionary(sessionID.BeginString, createDataDictionary(sessionID, settings, SessionSettings.TRANSPORT_DATA_DICTIONARY, sessionID.BeginString));
-    
+
             foreach (KeyValuePair<string, string> setting in settings)
             {
                 if (setting.Key.StartsWith(SessionSettings.APP_DATA_DICTIONARY, System.StringComparison.CurrentCultureIgnoreCase))

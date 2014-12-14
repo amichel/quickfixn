@@ -1,7 +1,12 @@
-﻿using System.Threading;
+﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Threading;
+using QuickFix;
 
-namespace QuickFix
+namespace QuickFix45
 {
     public abstract class AbstractInitiator : IInitiator
     {
@@ -12,15 +17,10 @@ namespace QuickFix
         private ILogFactory _logFactory = null;
         private IMessageFactory _msgFactory = null;
 
-        private object sync_ = new object();
         private bool _disposed = false;
-        private Dictionary<SessionID, Session> sessions_ = new Dictionary<SessionID, Session>();
-        private HashSet<SessionID> sessionIDs_ = new HashSet<SessionID>();
-        private HashSet<SessionID> pending_ = new HashSet<SessionID>();
-        private HashSet<SessionID> connected_ = new HashSet<SessionID>();
-        private HashSet<SessionID> disconnected_ = new HashSet<SessionID>();
+        private readonly ConcurrentDictionary<SessionID, SessionWrapper> _sessions = new ConcurrentDictionary<SessionID, SessionWrapper>();
         private bool isStopped_ = true;
-        private Thread thread_;
+        private ITaskWorker _worker;
 
         #region Properties
 
@@ -59,7 +59,7 @@ namespace QuickFix
                 throw new System.ObjectDisposedException(this.GetType().Name);
 
             // create all sessions
-            SessionFactory factory = new SessionFactory(_app, _storeFactory, _logFactory, _msgFactory);
+            var factory = new SessionFactory(_app, _storeFactory, _logFactory, _msgFactory);
             foreach (SessionID sessionID in _settings.GetSessions())
             {
                 Dictionary dict = _settings.Get(sessionID);
@@ -67,20 +67,18 @@ namespace QuickFix
 
                 if ("initiator".Equals(connectionType))
                 {
-                    sessionIDs_.Add(sessionID);
-                    sessions_[sessionID] = factory.Create(sessionID, dict);
-                    SetDisconnected(sessionID);
+                    _sessions[sessionID] = new SessionWrapper(factory.Create(sessionID, dict)) { ConnectionStatus = ConnectionStatus.Disconnected };
                 }
             }
 
-            if (0 == sessions_.Count)
+            if (0 == _sessions.Count)
                 throw new ConfigError("No sessions defined for initiator");
 
             // start it up
             isStopped_ = false;
             OnConfigure(_settings);
-            thread_ = new Thread(new ThreadStart(OnStart));
-            thread_.Start();
+            _worker = new TaskWorker(OnStart);
+            _worker.Start();
         }
 
         /// <summary>
@@ -103,20 +101,19 @@ namespace QuickFix
             if (IsStopped)
                 return;
 
-            List<ISession> enabledSessions = new List<ISession>();
+            var enabledSessions = new List<ISession>();
+            var connected = _sessions.Where(kv => kv.Value.ConnectionStatus == ConnectionStatus.Connected);
 
-            lock (sync_)
+            foreach (var kv in connected)
             {
-                foreach (SessionID sessionID in connected_)
+                ISession session = Session.LookupSession(kv.Key);
+                if (session.IsEnabled)
                 {
-                    ISession session = Session.LookupSession(sessionID);
-                    if (session.IsEnabled)
-                    {
-                        enabledSessions.Add(session);
-                        session.Logout();
-                    }
+                    enabledSessions.Add(session);
+                    session.Logout();
                 }
             }
+
 
             if (!force)
             {
@@ -125,46 +122,33 @@ namespace QuickFix
                     Thread.Sleep(1000);
             }
 
-            lock (sync_)
-            {
-                HashSet<SessionID> connectedSessionIDs = new HashSet<SessionID>(connected_);
-                foreach (SessionID sessionID in connectedSessionIDs)
-                    SetDisconnected(Session.LookupSession(sessionID).SessionID);
-            }
+            foreach (var kv in connected)
+                kv.Value.ConnectionStatus = ConnectionStatus.Disconnected;
 
             isStopped_ = true;
             OnStop();
 
             // Give OnStop() time to finish its business
-            thread_.Join(5000);
-            thread_ = null;
+            _worker.Stop(5000);
 
             // dispose all sessions and clear all session sets
-            lock (sync_)
-            {
-                foreach (Session s in sessions_.Values)
-                    s.Dispose();
-            }
-            sessions_.Clear();
-            sessionIDs_.Clear();
-            pending_.Clear();
-            connected_.Clear();
-            disconnected_.Clear();
+            foreach (var s in _sessions.Values)
+                s.Session.Dispose();
+            _sessions.Clear();
         }
 
         public bool IsLoggedOn
         {
             get
             {
-                lock (sync_)
+                foreach (var kv in _sessions)
                 {
-                    foreach (SessionID sessionID in connected_)
+                    if (kv.Value.ConnectionStatus == ConnectionStatus.Connected)
                     {
-                        if (Session.LookupSession(sessionID).IsLoggedOn)
-                            return true;
+                        ISession session = Session.LookupSession(kv.Key);
+                        if (session.IsLoggedOn) return true;
                     }
                 }
-
                 return false;
             }
         }
@@ -213,75 +197,63 @@ namespace QuickFix
 
         protected void Connect()
         {
-            lock (sync_)
+            foreach (var kv in _sessions)
             {
-                HashSet<SessionID> disconnectedSessions = new HashSet<SessionID>(disconnected_);
-                foreach (SessionID sessionID in disconnectedSessions)
+                if (kv.Value.ConnectionStatus == ConnectionStatus.Disconnected)
                 {
-                    ISession session = Session.LookupSession(sessionID);
+                    ISession session = Session.LookupSession(kv.Key);
                     if (session.IsEnabled)
                     {
                         if (session.IsNewSession)
                             session.Reset("New session");
                         if (session.IsSessionTime)
-                            DoConnect(sessionID, _settings.Get(sessionID));
+                            DoConnect(kv.Key, _settings.Get(kv.Key));
                     }
                 }
             }
         }
 
+        private void SetStatus(SessionID sessionId, ConnectionStatus status)
+        {
+            SessionWrapper session;
+            if (_sessions.TryGetValue(sessionId, out session))
+                session.ConnectionStatus = status;
+        }
+
+        private bool CheckStatus(SessionID sessionId, ConnectionStatus status)
+        {
+            SessionWrapper session;
+            return _sessions.TryGetValue(sessionId, out session) && session.ConnectionStatus == status;
+        }
+
         protected void SetPending(SessionID sessionID)
         {
-            lock (sync_)
-            {
-                pending_.Add(sessionID);
-                connected_.Remove(sessionID);
-                disconnected_.Remove(sessionID);
-            }
+            SetStatus(sessionID, ConnectionStatus.Pending);
         }
 
         protected void SetConnected(SessionID sessionID)
         {
-            lock (sync_)
-            {
-                pending_.Remove(sessionID);
-                connected_.Add(sessionID);
-                disconnected_.Remove(sessionID);
-            }
+            SetStatus(sessionID, ConnectionStatus.Connected);
         }
 
         protected void SetDisconnected(SessionID sessionID)
         {
-            lock (sync_)
-            {
-                pending_.Remove(sessionID);
-                connected_.Remove(sessionID);
-                disconnected_.Add(sessionID);
-            }
+            SetStatus(sessionID, ConnectionStatus.Disconnected);
         }
 
         protected bool IsPending(SessionID sessionID)
         {
-            lock (sync_)
-            {
-                return pending_.Contains(sessionID);
-            }
+            return CheckStatus(sessionID, ConnectionStatus.Pending);
         }
 
         protected bool IsConnected(SessionID sessionID)
         {
-            lock (sync_)
-            {
-                return connected_.Contains(sessionID);
-            }
+            return CheckStatus(sessionID, ConnectionStatus.Connected);
         }
 
         protected bool IsDisconnected(SessionID sessionID)
         {
-            lock (sync_)
-            {
-                return disconnected_.Contains(sessionID);
-            }
+            return CheckStatus(sessionID, ConnectionStatus.Disconnected);
         }
 
         #endregion
@@ -293,7 +265,7 @@ namespace QuickFix
         /// <returns>the SessionIDs for the sessions managed by this initiator</returns>
         public HashSet<SessionID> GetSessionIDs()
         {
-            return new HashSet<SessionID>(sessions_.Keys);
+            return new HashSet<SessionID>(_sessions.Keys);
         }
 
         /// <summary>
@@ -312,5 +284,24 @@ namespace QuickFix
         {
             Dispose(true);
         }
+    }
+
+    internal class SessionWrapper
+    {
+        public SessionWrapper(ISession session)
+        {
+            Session = session;
+        }
+
+        public ConnectionStatus ConnectionStatus { get; set; }
+
+        public ISession Session { get; private set; }
+    }
+
+    internal enum ConnectionStatus
+    {
+        Pending,
+        Connected,
+        Disconnected
     }
 }

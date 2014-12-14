@@ -3,9 +3,9 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Linq;
+using QuickFix;
 
-namespace QuickFix
+namespace QuickFix45
 {
     /// <summary>
     /// Async File log implementation
@@ -17,7 +17,7 @@ namespace QuickFix
         private readonly CancellationTokenSource _tokenSource = new CancellationTokenSource();
 
         private readonly string _fileLogPath;
-        private string _prefix;
+        private readonly string _prefix;
 
         public AsyncFileLog(string fileLogPath, string prefix = "GLOBAL")
         {
@@ -57,11 +57,11 @@ namespace QuickFix
             using (var log = new StreamWriter(filename, true) { AutoFlush = true })
             {
                 foreach (var message in buffer.GetConsumingEnumerable(_tokenSource.Token))
-                    log.WriteLine(Fields.Converters.DateTimeConverter.Convert(DateTime.UtcNow) + " : " + message);
+                    log.WriteLine(QuickFix.Fields.Converters.DateTimeConverter.Convert(DateTime.UtcNow) + " : " + message);
 
                 string mess;
                 while (buffer.TryTake(out mess))
-                    log.WriteLine(Fields.Converters.DateTimeConverter.Convert(DateTime.UtcNow) + " : " + mess);
+                    log.WriteLine(QuickFix.Fields.Converters.DateTimeConverter.Convert(DateTime.UtcNow) + " : " + mess);
             }
         }
 

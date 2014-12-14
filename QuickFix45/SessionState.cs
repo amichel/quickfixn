@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
+using QuickFix;
 
-namespace QuickFix
+namespace QuickFix45
 {
     // v2 TODO - consider making this internal
 
@@ -12,27 +15,23 @@ namespace QuickFix
     {
         #region Private Members
 
-        private object sync_ = new object();
-        private bool isEnabled_ = true;
-        private bool receivedLogon_ = false;
-        private bool receivedReset_ = false;
-        private bool sentLogon_ = false;
-        private bool sentLogout_ = false;
-        private bool sentReset_ = false;
-        private string logoutReason_ = "";
-        private int testRequestCounter_ = 0;
-        private int heartBtInt_ = 0;
-        private int heartBtIntAsMilliSecs_ = 0;
-        private DateTime lastReceivedTimeDT_ = DateTime.MinValue;
-        private DateTime lastSentTimeDT_ = DateTime.MinValue;
-        private int logonTimeout_ = 10;
-        private long logonTimeoutAsMilliSecs_ = 10 * 1000;
-        private int logoutTimeout_ = 2;
-        private long logoutTimeoutAsMilliSecs_ = 2 * 1000;
-        private ResendRange resendRange_ = new ResendRange();
-        private Dictionary<int, Message> msgQueue = new Dictionary<int, Message>();
+        private int _isEnabled = 0;
+        private int _receivedLogon = 0;
+        private int _receivedReset = 0;
+        private int _sentLogon = 0;
+        private int _sentLogout = 0;
+        private int _sentReset = 0;
+        private string _logoutReason = "";
+        private int _testRequestCounter = 0;
+        private int _heartBtInt = 0;
+        private long _lastReceivedTimeDt = DateTime.MinValue.ToBinary();
+        private long _lastSentTimeDt = DateTime.MinValue.ToBinary();
+        private int _logonTimeout = 10;
+        private int _logoutTimeout = 2;
+        private readonly ResendRange _resendRange = new ResendRange();
+        private readonly ConcurrentDictionary<int, Message> _msgQueue = new ConcurrentDictionary<int, Message>();
 
-        private ILog log_;
+        private readonly ILog _log;
 
         #endregion
 
@@ -48,7 +47,7 @@ namespace QuickFix
         { get { return IsInitiator && !SentLogon; } }
 
         public ILog Log
-        { get { return log_; } }
+        { get { return _log; } }
 
         #endregion
 
@@ -56,113 +55,102 @@ namespace QuickFix
 
         public bool IsEnabled
         {
-            get { lock (sync_) { return isEnabled_; } }
-            set { lock (sync_) { isEnabled_ = value; } }
+            get { return _isEnabled != 0; }
+            set { Interlocked.Exchange(ref _isEnabled, value ? 1 : 0); }
         }
 
         public bool ReceivedLogon
         {
-            get { lock (sync_) { return receivedLogon_; } }
-            set { lock (sync_) { receivedLogon_ = value; } }
+            get { return _receivedLogon != 0; }
+            set { Interlocked.Exchange(ref _receivedLogon, value ? 1 : 0); }
         }
 
         public bool ReceivedReset
         {
-            get { lock (sync_) { return receivedReset_; } }
-            set { lock (sync_) { receivedReset_ = value; } }
+            get { return _receivedReset != 0; }
+            set { Interlocked.Exchange(ref _receivedReset, value ? 1 : 0); }
         }
-
         public bool SentLogon
         {
-            get { lock (sync_) { return sentLogon_; } }
-            set { lock (sync_) { sentLogon_ = value; } }
+            get { return _sentLogon != 0; }
+            set { Interlocked.Exchange(ref _sentLogon, value ? 1 : 0); }
         }
-
         public bool SentLogout
         {
-            get { lock (sync_) { return sentLogout_; } }
-            set { lock (sync_) { sentLogout_ = value; } }
+            get { return _sentLogout != 0; }
+            set { Interlocked.Exchange(ref _sentLogout, value ? 1 : 0); }
         }
-
         public bool SentReset
         {
-            get { lock (sync_) { return sentReset_; } }
-            set { lock (sync_) { sentReset_ = value; } }
+            get { return _sentReset != 0; }
+            set { Interlocked.Exchange(ref _sentReset, value ? 1 : 0); }
         }
 
         public string LogoutReason
         {
-            get { lock (sync_) { return logoutReason_; } }
-            set { lock (sync_) { logoutReason_ = value; } }
+            get { return _logoutReason; }
+            set { Interlocked.Exchange(ref  _logoutReason, value); }
         }
 
         public int TestRequestCounter
         {
-            get { lock (sync_) { return testRequestCounter_; } }
-            set { lock (sync_) { testRequestCounter_ = value; } }
+            get { return _testRequestCounter; }
+            set { Interlocked.Exchange(ref  _testRequestCounter, value); }
         }
 
         public int HeartBtInt
         {
-            get { lock (sync_) { return heartBtInt_; } }
-            set { lock (sync_) { heartBtInt_ = value; heartBtIntAsMilliSecs_ = 1000 * value; } }
+            get { return _heartBtInt; }
+            set { Interlocked.Exchange(ref _heartBtInt, value); }
         }
 
         public int HeartBtIntAsMilliSecs
         {
-            get { lock (sync_) { return heartBtIntAsMilliSecs_; } }
+            get { return HeartBtInt * 1000; }
         }
 
         public DateTime LastReceivedTimeDT
         {
-            get { lock (sync_) { return lastReceivedTimeDT_; } }
-            set { lock (sync_) { lastReceivedTimeDT_ = value; } }
+            get { return DateTime.FromBinary(_lastReceivedTimeDt); }
+            set { Interlocked.Exchange(ref _lastReceivedTimeDt, value.ToBinary()); }
         }
-
-
         public DateTime LastSentTimeDT
         {
-            get { lock (sync_) { return lastSentTimeDT_; } }
-            set { lock (sync_) { lastSentTimeDT_ = value; } }
+            get { return DateTime.FromBinary(_lastSentTimeDt); }
+            set { Interlocked.Exchange(ref _lastSentTimeDt, value.ToBinary()); }
         }
 
         public int LogonTimeout
         {
-            get { lock (sync_) { return logonTimeout_; } }
-            set { lock (sync_) { logonTimeout_ = value; logonTimeoutAsMilliSecs_ = 1000 * value; } }
+            get { return _logonTimeout; }
+            set { Interlocked.Exchange(ref _logonTimeout, value); }
         }
 
         public long LogonTimeoutAsMilliSecs
         {
-            get { lock (sync_) { return logonTimeoutAsMilliSecs_; } }
+            get { return LogonTimeout * 1000; }
         }
 
         public int LogoutTimeout
         {
-            get { lock (sync_) { return logoutTimeout_; } }
-            set { lock (sync_) { logoutTimeout_ = value; logoutTimeoutAsMilliSecs_ = 1000 * value; } }
+            get { return _logoutTimeout; }
+            set { Interlocked.Exchange(ref _logoutTimeout, value); }
         }
 
         public long LogoutTimeoutAsMilliSecs
         {
-            get { lock (sync_) { return logoutTimeoutAsMilliSecs_; } }
-        }
-
-        private Dictionary<int, Message> MsgQueue
-        {
-            get { lock (sync_) { return msgQueue; } }
-            set { lock (sync_) { msgQueue = value; } }
+            get { return LogoutTimeout * 1000; }
         }
 
         #endregion
 
         public SessionState(ILog log, int heartBtInt)
         {
-            log_ = log;
+            _log = log;
             this.HeartBtInt = heartBtInt;
             this.IsInitiator = (0 != heartBtInt);
-            lastReceivedTimeDT_ = DateTime.UtcNow;
-            lastSentTimeDT_ = DateTime.UtcNow;
+            _lastReceivedTimeDt = DateTime.UtcNow.ToBinary();
+            _lastSentTimeDt = DateTime.UtcNow.ToBinary();
         }
 
         /// <summary>
@@ -271,58 +259,47 @@ namespace QuickFix
 
         public ResendRange GetResendRange()
         {
-            return resendRange_;
+            return _resendRange;
         }
 
         public void Get(int begSeqNo, int endSeqNo, List<string> messages)
         {
-            lock (sync_)
-            {
-                MessageStore.Get(begSeqNo, endSeqNo, messages);
-            }
+            MessageStore.Get(begSeqNo, endSeqNo, messages);
         }
 
         public void SetResendRange(int begin, int end, int chunkEnd = -1)
         {
-            resendRange_.BeginSeqNo = begin;
-            resendRange_.EndSeqNo = end;
-            resendRange_.ChunkEndSeqNo = chunkEnd == -1 ? end : chunkEnd;
+            _resendRange.BeginSeqNo = begin;
+            _resendRange.EndSeqNo = end;
+            _resendRange.ChunkEndSeqNo = chunkEnd == -1 ? end : chunkEnd;
         }
 
         public bool ResendRequested()
         {
-            return !(resendRange_.BeginSeqNo == 0 && resendRange_.EndSeqNo == 0);
+            return !(_resendRange.BeginSeqNo == 0 && _resendRange.EndSeqNo == 0);
         }
 
         public void Queue(int msgSeqNum, Message msg)
         {
-            MsgQueue.Add(msgSeqNum, msg);
+            _msgQueue[msgSeqNum] = msg;
         }
 
         public void ClearQueue()
         {
-            MsgQueue.Clear();
+            _msgQueue.Clear();
         }
 
         public QuickFix.Message Dequeue(int num)
         {
-            if (MsgQueue.ContainsKey(num))
-            {
-                QuickFix.Message msg = MsgQueue[num];
-                MsgQueue.Remove(num);
-                return msg;
-            }
-            return null;
+            Message msg = null;
+            _msgQueue.TryRemove(num, out msg);
+            return msg;
         }
 
         public Message Retrieve(int msgSeqNum)
         {
             Message msg = null;
-            if (MsgQueue.ContainsKey(msgSeqNum))
-            {
-                msg = MsgQueue[msgSeqNum];
-                MsgQueue.Remove(msgSeqNum);
-            }
+            _msgQueue.TryGetValue(msgSeqNum, out msg);
             return msg;
         }
 
@@ -350,44 +327,44 @@ namespace QuickFix
 
         public bool Set(int msgSeqNum, string msg)
         {
-            lock (sync_) { return this.MessageStore.Set(msgSeqNum, msg); }
+            return this.MessageStore.Set(msgSeqNum, msg);
         }
 
         public int GetNextSenderMsgSeqNum()
         {
-            lock (sync_) { return this.MessageStore.GetNextSenderMsgSeqNum(); }
+            return this.MessageStore.GetNextSenderMsgSeqNum();
         }
 
         public int GetNextTargetMsgSeqNum()
         {
-            lock (sync_) { return this.MessageStore.GetNextTargetMsgSeqNum(); }
+            return this.MessageStore.GetNextTargetMsgSeqNum();
         }
 
         public void SetNextSenderMsgSeqNum(int value)
         {
-            lock (sync_) { this.MessageStore.SetNextSenderMsgSeqNum(value); }
+            this.MessageStore.SetNextSenderMsgSeqNum(value);
         }
 
         public void SetNextTargetMsgSeqNum(int value)
         {
-            lock (sync_) { this.MessageStore.SetNextTargetMsgSeqNum(value); }
+            this.MessageStore.SetNextTargetMsgSeqNum(value);
         }
 
         public void IncrNextSenderMsgSeqNum()
         {
-            lock (sync_) { this.MessageStore.IncrNextSenderMsgSeqNum(); }
+            this.MessageStore.IncrNextSenderMsgSeqNum();
         }
 
         public void IncrNextTargetMsgSeqNum()
         {
-            lock (sync_) { this.MessageStore.IncrNextTargetMsgSeqNum(); }
+            this.MessageStore.IncrNextTargetMsgSeqNum();
         }
 
         public System.DateTime? CreationTime
         {
             get
             {
-                lock (sync_) { return this.MessageStore.CreationTime; }
+                return this.MessageStore.CreationTime;
             }
         }
 
@@ -399,23 +376,20 @@ namespace QuickFix
 
         public void Reset(string reason)
         {
-            lock (sync_)
-            {
-                this.MessageStore.Reset();
-                this.Log.OnEvent("Session reset: " + reason);
-            }
+            this.MessageStore.Reset();
+            this.Log.OnEvent("Session reset: " + reason);
         }
 
         public void Refresh()
         {
-            lock (sync_) { this.MessageStore.Refresh(); }
+            this.MessageStore.Refresh();
         }
 
         #endregion
 
         public void Dispose()
         {
-            if (log_ != null) { log_.Dispose(); }
+            if (_log != null) { _log.Dispose(); }
             if (MessageStore != null) { MessageStore.Dispose(); }
         }
     }

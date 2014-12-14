@@ -1,15 +1,13 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Net.Sockets;
-using QuickFix.Config;
-using System.Net;
-using System.Diagnostics;
-using System.Threading;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using QuickFix;
 
-namespace QuickFix.Transport
+namespace QuickFix45.Transport
 {
     /// <summary>
     /// Initiates connections and uses a single thread to process messages for all sessions.
@@ -18,7 +16,7 @@ namespace QuickFix.Transport
     {
         public const string SOCKET_CONNECT_HOST = "SocketConnectHost";
         public const string SOCKET_CONNECT_PORT = "SocketConnectPort";
-        public const string RECONNECT_INTERVAL  = "ReconnectInterval";
+        public const string RECONNECT_INTERVAL = "ReconnectInterval";
 
         #region Properties
 
@@ -33,10 +31,10 @@ namespace QuickFix.Transport
         private DateTime lastConnectTimeDT = DateTime.MinValue;
         private int reconnectInterval_ = 30;
         private SocketSettings socketSettings_ = new SocketSettings();
-        private Dictionary<SessionID, SocketInitiatorThread> threads_ = new Dictionary<SessionID, SocketInitiatorThread>();
-        private Dictionary<SessionID, int> sessionToHostNum_ = new Dictionary<SessionID, int>();
-        private object sync_ = new object();
-        
+        private ConcurrentDictionary<SessionID, SocketInitiatorThread> threads_ = new ConcurrentDictionary<SessionID, SocketInitiatorThread>();
+        private ConcurrentDictionary<SessionID, int> sessionToHostNum_ = new ConcurrentDictionary<SessionID, int>();
+
+
         #endregion
 
         public SocketInitiator(IApplication application, IMessageStoreFactory storeFactory, SessionSettings settings)
@@ -72,29 +70,24 @@ namespace QuickFix.Transport
                 t.Initiator.RemoveThread(t);
                 t.Initiator.SetDisconnected(t.Session.SessionID);
             }
-            catch (SocketException e) 
+            catch (SocketException e)
             {
                 t.Session.Log.OnEvent("Connection failed: " + e.Message);
                 t.Initiator.RemoveThread(t);
                 t.Initiator.SetDisconnected(t.Session.SessionID);
             }
         }
-        
+
         private void AddThread(SocketInitiatorThread thread)
         {
-            lock (sync_)
-            {
-                threads_[thread.Session.SessionID] = thread;
-            }
+            threads_[thread.Session.SessionID] = thread;
         }
 
         private void RemoveThread(SocketInitiatorThread thread)
         {
-            lock (sync_)
-            {
-                thread.Join();
-                threads_.Remove(thread.Session.SessionID);
-            }
+
+            thread.Join();
+            threads_.TryRemove(thread.Session.SessionID, out thread);
         }
 
         private IPEndPoint GetNextSocketEndPoint(SessionID sessionID, QuickFix.Dictionary settings)
@@ -129,7 +122,7 @@ namespace QuickFix.Transport
         }
 
         #region Initiator Methods
-        
+
         /// <summary>
         /// handle other socket options like TCP_NO_DELAY here
         /// </summary>
@@ -145,13 +138,13 @@ namespace QuickFix.Transport
 
             // Don't know if this is required in order to handle settings in the general section
             socketSettings_.Configure(settings.Get());
-        }       
+        }
 
         protected override void OnStart()
         {
             shutdownRequested_ = false;
 
-            while(!shutdownRequested_)
+            while (!shutdownRequested_)
             {
                 double reconnectIntervalAsMilliseconds = 1000 * reconnectInterval_;
                 DateTime nowDT = DateTime.UtcNow;
@@ -194,7 +187,7 @@ namespace QuickFix.Transport
                 socketSettings_.Configure(settings);
 
                 // Create a Ssl-SocketInitiatorThread if a certificate is given
-                SocketInitiatorThread t = new SocketInitiatorThread(this, session, socketEndPoint, socketSettings_);                
+                SocketInitiatorThread t = new SocketInitiatorThread(this, session, socketEndPoint, socketSettings_);
                 t.Start();
                 AddThread(t);
 
